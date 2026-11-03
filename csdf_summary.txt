@@ -8,9 +8,9 @@ Course       : SPPU BE Computer Engineering
 Subject      : Cyber Security and Digital Forensics (CSDF)
 Project type : Mini Project
 Language     : Python 3.10+
-Current state: Modules 1, 2 and 3 implemented and tested (21 tests passing)
-Pending      : Module 4 (copy-move), Module 5 (steganography),
-               Module 6 (verdict + PDF report + Streamlit UI)
+Current state: Modules 1, 2, 3 plus verdict aggregation and PDF evidence report
+               implemented and tested (34 tests passing)
+Pending      : Module 4 (copy-move), Module 5 (steganography), Streamlit UI
 
 One-line pitch:
 "An offline, modular image-forensics tool that checks file integrity, reads
@@ -30,7 +30,7 @@ This file is organised so each section can become one slide. A ready-made
   Slide 5  Module 1 - File analysis
   Slide 6  Module 2 - Metadata and GPS
   Slide 7  Module 3 - Error Level Analysis
-  Slide 8  Modules 4-6 - Planned detection and reporting
+  Slide 8  Modules 4-6 - Detection, verdict and PDF report
   Slide 9  Tech stack and folder structure
   Slide 10 Sample dataset
   Slide 11 Results table
@@ -441,39 +441,59 @@ JPEG compression destroys most LSB payloads. LSB/chi-square checks are strongest
 on PNG, BMP and TIFF. A negative result does not prove there is no steganography.
 
 ===============================================================================
-12. MODULE 6 - VERDICT + PDF REPORT + UI (PLANNED)
+12. VERDICT + PDF REPORT (IMPLEMENTED) / STREAMLIT UI (PLANNED)
 ===============================================================================
 Files:
-- forensics/verdict.py
-- forensics/report.py
-- app.py
+- forensics/verdict.py    (implemented)
+- forensics/pipeline.py   (implemented)
+- forensics/report.py     (implemented)
+- app.py                  (pending)
 
 Verdict:
-Weighted score:
-    file_analysis_score x 0.15
-  + metadata_score     x 0.20
-  + ela_score          x 0.20
-  + copymove_score     x 0.30
-  + stego_score        x 0.15
+    weighted = sum(weight x module score) / sum(weight of modules that ran)
+    final    = 0.55 x weighted + 0.45 x strongest module score
+
+Module weights:
+    file_analysis x 0.15
+    metadata      x 0.20
+    ela           x 0.20
+    copymove      x 0.30
+    stego         x 0.15
+
+The weights are re-normalised over the modules that actually ran, so a partial
+pipeline still produces a meaningful score. The blend with the strongest module
+stops one strong signal from being diluted to nothing.
+
+Guard-rails:
+- A high-severity finding always lifts the score to the review band.
+- Any module scoring >= 20 also lifts the blended score to 20, so a supporting
+  signal is never reported as "likely authentic".
 
 Verdict bands:
     0-19    Likely authentic
     20-49   Suspicious
     50-100  Likely tampered
+    n/a     Inconclusive (no module completed)
 
-The report will list supporting and contradicting findings. A single high score
-must never be shown without its reasoning.
+One-command report:
+    python -m forensics.report samples/tampered/spliced_demo.jpg
 
-PDF report contents:
+Options: -o PATH, --examiner NAME, --case-id ID, --no-open, --no-optional.
+The PDF is written to output/reports/ and opened in the system viewer.
+
+PDF report contents (all implemented):
 - Case ID, examiner, date and tool version.
 - SHA-256 digest and file facts.
-- Module summaries and findings with severity/confidence.
-- GPS and map link.
-- Original image, ELA heatmap, copy-move overlay and stego artifact.
-- Final verdict and reasoning.
-- Thresholds used, so another examiner can reproduce the result.
+- Verdict card with score, band, confidence, coverage and agreement.
+- Executive summary with supporting and contradicting evidence.
+- Module score table with signal bars.
+- Findings with severity, confidence and source module.
+- GPS and OpenStreetMap link.
+- Original image, ELA comparison sheet, overlay, heatmap, EXIF thumbnail.
+- Thresholds, verdict formula and limitations.
+- Chain-of-custody declaration, disclaimer and reproduction commands.
 
-Streamlit UI:
+Streamlit UI (pending):
 - Upload image.
 - Validate and persist the exact bytes.
 - Run the pipeline.
@@ -502,7 +522,7 @@ third-party service.
 14. PROJECT STRUCTURE
 ===============================================================================
 image-forensics-tool/
-  app.py                      # Streamlit UI (Module 6)
+  app.py                      # Streamlit UI (pending)
   requirements.txt
   README.md
   summary.txt                 # this file
@@ -514,8 +534,8 @@ image-forensics-tool/
     ela.py                    # Module 3: ELA heatmap + dense regions
     copymove.py               # Module 4: planned
     stego.py                  # Module 5: planned
-    verdict.py                # Module 6: planned score aggregation
-    report.py                 # Module 6: planned PDF report
+    verdict.py                # score aggregation + escalation rules
+    report.py                 # PDF evidence report + one-command CLI
 
   utils/
     __init__.py
@@ -597,6 +617,11 @@ All three in sequence:
   python -m forensics.metadata     samples/original/original_demo.jpg
   python -m forensics.ela          samples/original/original_demo.jpg
 
+One command -> full PDF report (runs all modules and opens the PDF):
+  python -m forensics.report samples/tampered/spliced_demo.jpg
+  python -m forensics.report samples/original/original_demo.jpg --examiner "Sagar"
+  python -m forensics.report samples/tampered/spliced_demo.jpg --no-open
+
 Tests:
   python -m unittest discover -s tests -v
 
@@ -636,21 +661,26 @@ Why these samples:
 ===============================================================================
 18. CURRENT RESULTS
 ===============================================================================
-Sample                    File score   Metadata score   ELA score
-------------------------  ----------   --------------   ---------
-original_demo.jpg             0.0           0.0            0.0
-original_demo.png             0.0           0.0            0.0
-edited_metadata.jpg           0.0          30.0            0.0
-spliced_demo.jpg              0.0           0.0           84.3
-copymove_demo.jpg             0.0           0.0            0.0
-retouched_demo.jpg            0.0           0.0            0.0
-retouched_strong.jpg          0.0           0.0            0.0
+Sample                    File   Metadata   ELA   Verdict
+------------------------  -----  --------   ----  ------------------
+original_demo.jpg           0.0      0.0    0.0  Likely authentic
+original_demo.png           0.0      0.0    0.0  Likely authentic
+edited_metadata.jpg         0.0     30.0    0.0  Suspicious (20.0)
+spliced_demo.jpg            0.0      0.0   84.3  Likely tampered (54.8)
+copymove_demo.jpg           0.0      0.0    0.0  Likely authentic
+retouched_demo.jpg          0.0      0.0    0.0  Likely authentic
+retouched_strong.jpg        0.0      0.0    0.0  Likely authentic
+
+Note: the verdict is computed from modules that ran. Copy-move and stego are
+not built yet, so their weights are re-normalised out.
 
 Interpretation:
 - The clean image scores zero in all implemented modules.
 - The metadata-only edit is caught by metadata (30) but not by ELA, because
-  the pixels did not change. This is the correct behaviour.
-- The splice is caught by ELA (84.3) with one dense region around the patch.
+  the pixels did not change. The verdict is Suspicious because a supporting
+  signal crossed the review threshold.
+- The splice is caught by ELA (84.3) with one dense region around the patch,
+  producing the Likely tampered verdict (54.8/100).
 - Smooth retouch and blur are not caught by ELA. This is an honest limitation;
   copy-move/noise analysis is needed for those edits.
 
@@ -705,6 +735,8 @@ Best PPT images:
    Clean control. Edges glow, but no dense region is flagged.
 4. output/metadata_results/thumb_<name>.png
    Extracted EXIF thumbnail, if present.
+5. output/reports/report_<stem>_<ext>.pdf
+   Full PDF evidence report for the live demo (6 pages for the splice sample).
 
 ===============================================================================
 20. TESTING
@@ -713,7 +745,7 @@ Command:
   python -m unittest discover -s tests -v
 
 Current result:
-  Ran 21 tests in 2.119s
+  Ran 34 tests in 8.643s
   OK
 
 Coverage:
@@ -743,6 +775,23 @@ Module 3 (6 tests):
 - metadata-only edit does not raise ELA
 - corrupt ELA input returns a structured error
 - block-grid and density-map maths
+
+Verdict (7 tests):
+- clean image is likely authentic
+- strong ELA signal reaches the tampered band
+- a single medium signal is escalated out of the authentic band
+- a high-severity finding forces the review band
+- all-error pipeline is inconclusive
+- weights re-normalise over available modules
+- error modules are reported separately
+
+PDF report (6 tests):
+- clean image report is valid and authentic
+- tampered image report is flagged
+- metadata-only edit reports suspicious
+- a corrupt file still produces an inconclusive report
+- directory output and custom case IDs work
+- optional modules are reported as unavailable
 
 Negative controls to demonstrate:
 - Rename a JPEG to .png -> Module 1 mismatch finding.
@@ -936,8 +985,9 @@ hash chain in the UI phase will make tampering with the audit log detectable.
 PixelProof combines file-integrity checks, metadata analysis and pixel-level
 ELA into a single offline workflow. It produces structured findings, confidence,
 heatmaps and a reproducible record instead of a single opaque "edited" label.
-Modules 1-3 are implemented and validated on clean, metadata-edited, spliced and
-retouched samples, with 21 passing tests. The remaining modules add copy-move
+Modules 1-3, the verdict and the PDF report are implemented and validated on
+clean, metadata-edited, spliced and retouched samples, with 34 passing tests.
+The remaining modules add copy-move
 detection, steganography checks, score aggregation, a PDF evidence report and a
 Streamlit UI.
 
@@ -977,15 +1027,23 @@ Step 4 - Show the artifacts:
     output/ela_results/ela_spliced_demo_comparison.png
     output/ela_results/ela_spliced_demo_overlay.png
 
-Step 5 - Show tests:
+Step 5 - Generate the full PDF report in one command:
+  python -m forensics.report samples/tampered/spliced_demo.jpg
+
+Say:
+"This single command ran all three modules, combined them into a verdict and
+opened a six-page evidence report: hashes, module scores, findings, ELA images,
+GPS, thresholds and a chain-of-custody declaration."
+
+Step 6 - Show tests:
   python -m unittest discover -s tests -v
 
 Say:
-"21 tests pass, including clean control, splice detection, artifact checks and
-corrupt-input handling."
+"34 tests pass, including clean control, splice detection, artifact checks,
+verdict escalation and PDF generation."
 
-Step 6 - State the next steps:
-  Module 4 copy-move, Module 5 steganography, Module 6 verdict/PDF/UI.
+Step 7 - State the next steps:
+  Module 4 copy-move, Module 5 steganography, Streamlit UI.
 
 ===============================================================================
 28. READY-MADE 15-SLIDE PPT PLAN
@@ -1086,7 +1144,7 @@ Slide 15 - Conclusion and Demo
   - Modular, offline image-forensics toolkit.
   - Combines integrity, metadata and compression analysis.
   - Structured findings and reproducible artifacts.
-  - Modules 1-3 complete; 4-6 planned.
+  - Modules 1-3 plus verdict and PDF report complete; copy-move, stego and UI planned.
   - Live demo commands.
   - Thank you / questions.
 
@@ -1184,23 +1242,27 @@ Completed:
   [x] Module 1 - file analysis and integrity
   [x] Module 2 - EXIF/GPS/metadata
   [x] Module 3 - Error Level Analysis
+  [x] Verdict aggregation (weighted consensus + strongest signal + guard-rails)
+  [x] Analysis pipeline that runs every available module
+  [x] PDF evidence report (6 pages) with verdict, findings, images and custody block
+  [x] One-command CLI that builds and opens the report
   [x] README with setup, usage, test plan, theory and limitations
-  [x] 21 unit tests passing
-  [x] ELA artifacts generated for the PPT
+  [x] 34 unit tests passing
+  [x] ELA artifacts and sample PDF reports generated for the PPT
 
 Next:
   [ ] Module 4 - copy-move forgery detection
   [ ] Module 5 - steganography checks
-  [ ] Module 6 - verdict + PDF report + Streamlit UI
+  [ ] Streamlit UI (upload, tabs, PDF download)
   [ ] Architecture and data-flow diagrams exported to docs/
   [ ] Screenshots of clean, edited and stego cases
-  [ ] Final PDF report sample
 
 Commands to reproduce the current state:
   cd image-forensics-tool
   source .venv/bin/activate
   python -m unittest discover -s tests -v
   python -m forensics.ela samples/tampered/spliced_demo.jpg
+  python -m forensics.report samples/tampered/spliced_demo.jpg
 
 ===============================================================================
 END OF SUMMARY

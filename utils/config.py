@@ -77,6 +77,13 @@ VERDICT_THRESHOLDS = {
     "suspicious": 50,   # 20 <= score < 50
     # >= 50 is "Likely tampered"
 }
+# How the final verdict blends the weighted consensus with the strongest
+# single module.  Modules that did not run are re-normalised out, so the
+# verdict still works while Modules 4-5 are under construction.
+VERDICT_BLEND = {
+    "weighted": 0.55,
+    "strongest": 0.45,
+}
 
 
 def ensure_dirs() -> None:

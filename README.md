@@ -17,9 +17,10 @@ The tool helps an investigator answer three questions about a submitted image:
 Every module returns structured findings, and the final stage produces a PDF
 evidence report with a verdict and reasoning.
 
-> **Status:** Modules 1–3 of 6 complete.
-> Completed: file analysis & integrity, EXIF/metadata analysis, Error Level Analysis.
-> Pending: copy-move, stego, verdict, PDF report, Streamlit UI.
+> **Status:** Modules 1–3 and the verdict + PDF report are complete.
+> Completed: file analysis & integrity, EXIF/metadata analysis, Error Level Analysis,
+> verdict aggregation, PDF evidence report, one-command CLI.
+> Pending: copy-move detection, steganography checks, Streamlit UI.
 
 ---
 
@@ -32,7 +33,9 @@ evidence report with a verdict and reasoning.
 | 3 | Error Level Analysis | `forensics/ela.py` | ✅ Complete |
 | 4 | Copy-move forgery detection | `forensics/copymove.py` | ⏳ Next |
 | 5 | Steganography checks | `forensics/stego.py` | ⏳ Pending |
-| 6 | Verdict + PDF report + UI | `forensics/verdict.py`, `forensics/report.py`, `app.py` | ⏳ Pending |
+| 6a | Verdict aggregation | `forensics/verdict.py`, `forensics/pipeline.py` | ✅ Complete |
+| 6b | PDF evidence report | `forensics/report.py` | ✅ Complete |
+| 6c | Streamlit UI | `app.py` | ⏳ Pending |
 
 ### What works today
 
@@ -51,7 +54,10 @@ evidence report with a verdict and reasoning.
 - Region-vs-surrounding-ring contrast check (suppresses horizon/edge lines)
 - Annotated ELA overlay and side-by-side comparison sheet
 - Structured findings with severity and confidence
-- Unit tests for Modules 1–3 (21 tests passing)
+- Weighted verdict with supporting/contradicting evidence and escalation guard-rails
+- One command runs every available module and writes a multi-page PDF evidence report
+- The PDF opens automatically in the system viewer (`--no-open` to suppress)
+- Unit tests for all completed modules (34 tests passing)
 
 ---
 
@@ -63,9 +69,9 @@ evidence report with a verdict and reasoning.
 | Image decoding | Pillow |
 | Pixel analysis | OpenCV (`opencv-python-headless`), NumPy |
 | EXIF | ExifRead + Pillow |
-| Plots / heatmaps (later) | Matplotlib |
-| PDF report (later) | ReportLab |
-| UI | Streamlit |
+| Plots / heatmaps | Matplotlib |
+| PDF report | ReportLab |
+| UI | Streamlit (pending) |
 | Hashing | `hashlib` (standard library) |
 | Tests | `unittest` (standard library) |
 
@@ -135,8 +141,8 @@ third-party service.
 
 5. **Verdict** — `verdict.py` combines module scores and findings into
    **Likely authentic / Suspicious / Likely tampered**.
-6. **Report** — `report.py` embeds the original, ELA, copy-move artifacts and
-   all findings into a PDF.
+6. **Report** — `report.py` embeds the original, ELA artifacts, EXIF thumbnail and
+   all findings into a PDF, with the thresholds and a custody declaration.
 7. **Display** — Streamlit renders tabs: Overview, Metadata, ELA, Copy-Move,
    Stego, Report.
 
@@ -157,7 +163,7 @@ third-party service.
 
 ```text
 image-forensics-tool/
-├── app.py                      # Streamlit UI (Module 6)
+├── app.py                      # Streamlit UI (pending)
 ├── requirements.txt
 ├── README.md
 │
@@ -168,8 +174,9 @@ image-forensics-tool/
 │   ├── ela.py                  # ✅ Module 3: ELA heatmap + dense regions
 │   ├── copymove.py             # ⏳ Module 4
 │   ├── stego.py                # ⏳ Module 5
-│   ├── verdict.py              # ⏳ score aggregation
-│   └── report.py               # ⏳ PDF report
+│   ├── verdict.py              # ✅ score aggregation + escalation rules
+│   ├── pipeline.py             # ✅ runs every available analyzer
+│   └── report.py               # ✅ PDF report + one-command CLI
 │
 ├── utils/
 │   ├── __init__.py
@@ -192,13 +199,15 @@ image-forensics-tool/
 │   ├── ela_results/
 │   ├── copymove_results/
 │   ├── metadata_results/       # extracted EXIF thumbnails
-│   ├── reports/
+│   ├── reports/                # generated PDF evidence reports
 │   └── cases/                  # per-case evidence copies
 │
 ├── tests/
 │   ├── test_file_analysis.py   # ✅ 6 tests
 │   ├── test_metadata.py        # ✅ 9 tests
-│   └── test_ela.py             # ✅ 6 tests
+│   ├── test_ela.py             # ✅ 6 tests
+│   ├── test_verdict.py         # ✅ 7 tests
+│   └── test_report.py          # ✅ 6 tests
 │
 └── docs/
     ├── architecture.png        # to be exported for submission
@@ -362,7 +371,81 @@ python -m forensics.metadata     samples/original/original_demo.jpg
 python -m forensics.ela          samples/original/original_demo.jpg
 ```
 
-### Full Streamlit app (available after Module 6)
+### One command → PDF evidence report
+
+`forensics.report` runs every available analyzer through
+`forensics.pipeline`, combines the scores with `forensics.verdict`, writes the
+PDF under `output/reports/`, prints a summary and opens the file:
+
+```bash
+python -m forensics.report samples/tampered/spliced_demo.jpg
+```
+
+Shortcut that uses only the models present in this build (file analysis,
+metadata, ELA), builds the PDF and **prints the path** without opening a viewer
+(the same arguments work on every platform):
+
+```bash
+# Linux / macOS
+./report.sh samples/tampered/spliced_demo.jpg
+
+# Windows (cmd.exe or PowerShell)
+report.bat samples\tampered\spliced_demo.jpg
+
+# Any platform, no shell wrapper needed
+python report.py samples/tampered/spliced_demo.jpg
+```
+
+```text
+  report   : /…/output/reports/report_spliced_demo_jpg.pdf  (814.8 KB)
+PDF: /…/output/reports/report_spliced_demo_jpg.pdf
+```
+
+The wrappers pick the project `.venv` automatically (`.venv/bin/python` on
+Linux/macOS, `.venv\Scripts\python.exe` on Windows) and fall back to the system
+interpreter. Pass the normal report flags after the image, for example
+`./report.sh photo.jpg --examiner "Sagar" -o /tmp/report.pdf` (Windows:
+`report.bat photo.jpg --examiner "Sagar" -o C:\tmp\report.pdf`).
+
+Terminal output:
+
+```text
+PixelProof — image forensic report
+  evidence : samples/tampered/spliced_demo.jpg
+  verdict  : Likely tampered  (54.8/100, confidence 74%)
+  modules  : File analysis & integrity 0.0 · Metadata / EXIF 0.0 · Error Level Analysis 84.3
+  skipped  : copymove, stego (not in this build)
+  report   : output/reports/report_spliced_demo_jpg.pdf  (814.7 KB)
+  viewer   : opened
+```
+
+Options:
+
+| Flag | Effect |
+|---|---|
+| `-o PATH` | Write to a specific PDF path (or a directory) |
+| `--examiner "Name"` | Print the examiner on the report and chain-of-custody block |
+| `--case-id ID` | Override the generated case ID (`PP-YYYYMMDD-HHMMSS-XXXX`) |
+| `--no-open` | Build the PDF but do not launch a viewer (CI/headless) |
+| `--no-optional` | Skip optional modules (copy-move, stego) even when present |
+
+The PDF contains, in order:
+
+1. Case metadata and title block
+2. Verdict card — band, score, confidence, coverage and agreement
+3. Executive summary — supporting and contradicting evidence
+4. Evidence and integrity — size, container, dimensions, SHA-256/SHA-1/MD5
+5. Module score table with signal bars
+6. Findings sorted by severity, each with source module and confidence
+7. Visual evidence — original, ELA comparison sheet, overlay and heatmap, EXIF thumbnail
+8. Metadata detail — camera, GPS + OpenStreetMap link, timestamps, top EXIF tags
+9. Method and thresholds, verdict formula and limitations
+10. Chain-of-custody declaration, disclaimer and reproduction commands
+
+The evidence file is only read. Every report states the exact thresholds used,
+so another examiner can reproduce the run.
+
+### Full Streamlit app (available after the UI module)
 
 ```bash
 streamlit run app.py
@@ -482,7 +565,7 @@ python -m unittest discover -s tests -v
 Current result:
 
 ```text
-Ran 21 tests in 1.675s
+Ran 34 tests in 8.643s
 OK
 ```
 
@@ -509,6 +592,14 @@ Coverage:
 - metadata-only edit does not raise ELA
 - corrupt ELA input returns a structured error
 - block-grid and density-map maths
+- clean image verdict is likely authentic
+- strong ELA signal reaches the tampered band
+- metadata-only signal is escalated out of the authentic band
+- all-error pipeline is inconclusive
+- weights re-normalise over modules that ran
+- clean/tampered/metadata reports produce valid PDFs
+- a corrupt file still produces an inconclusive report
+- directory output and custom case IDs
 
 ---
 
@@ -521,7 +612,7 @@ Coverage:
 | `output/ela_results/ela_<stem>_overlay.png` | Heatmap blended on the original, regions outlined |
 | `output/ela_results/ela_<stem>_comparison.png` | Side-by-side original/ELA panel |
 | `output/copymove_results/` | Copy-move overlay/mask (Module 4) |
-| `output/reports/<case_id>.pdf` | Final evidence report (Module 6) |
+| `output/reports/report_<stem>_<ext>.pdf` | Final evidence report |
 | `output/cases/<case_id>/evidence/` | Read-only evidence copies (UI phase) |
 
 For Modules 1–3, the primary output is JSON on stdout plus the extracted
@@ -548,24 +639,39 @@ thumbnail and the three ELA images.
 
 ---
 
-## 9. Verdict logic (planned, Module 6)
+## 9. Verdict logic
+
+Implemented in `forensics/verdict.py` and `forensics/pipeline.py`.
 
 ```text
-weighted_score =
-    file_analysis_score × 0.15 +
-    metadata_score     × 0.20 +
-    ela_score          × 0.20 +
-    copymove_score     × 0.30 +
-    stego_score        × 0.15
+weighted = Σ(weight × module score) / Σ(weight of modules that ran)
+final    = 0.55 × weighted + 0.45 × strongest module score
 ```
+
+Module weights: file analysis 0.15, metadata 0.20, ELA 0.20, copy-move 0.30,
+steganography 0.15. Because copy-move and stego are not built yet, the weights
+are **re-normalised over the modules that actually ran** — a partial pipeline
+still produces a meaningful score instead of being capped.
+
+The blend with the strongest module prevents one strong signal (for example
+ELA at 84/100) from being diluted to nothing by modules that had no evidence.
 
 | Score | Verdict |
 |---:|---|
 | 0–19 | **Likely authentic** (no strong manipulation indicators) |
 | 20–49 | **Suspicious** (manual review required) |
 | 50–100 | **Likely tampered** |
+| — | **Inconclusive** (no module completed) |
 
-The report will also list supporting and contradicting findings, because a
+Two guard-rails stop a contradictory label:
+
+1. A **high-severity finding** always lifts the score to the review band.
+2. Any module that **crossed the review threshold (≥ 20)** also lifts the
+   blended score to 20, so a supporting signal is never reported as
+   "likely authentic". This is why `edited_metadata.jpg` reports
+   **Suspicious (20.0)** even though its blended average is only 10.9.
+
+The report always lists supporting *and* contradicting findings, because a
 single high score must never be presented without its reasoning.
 
 ---
@@ -591,6 +697,8 @@ single high score must never be presented without its reasoning.
 | `COPYMOVE.min_matches` | 8 | Minimum matches for a finding |
 | `STEGO.lsb_entropy_threshold` | 0.92 | LSB-plane suspicion threshold |
 | `STEGO.chi_square_p_threshold` | 0.95 | Chi-square attack threshold |
+| `VERDICT_BLEND.weighted` | 0.55 | Share of the weighted consensus in the final score |
+| `VERDICT_BLEND.strongest` | 0.45 | Share of the strongest module in the final score |
 
 Change these only with a documented reason; the report should state the values
 used.
