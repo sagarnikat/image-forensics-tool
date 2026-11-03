@@ -1,0 +1,1207 @@
+===============================================================================
+PIXELPROOF - IMAGE FORENSIC EXAMINATION TOOLKIT
+Complete Project Summary for PPT / Report / Viva
+===============================================================================
+
+Project      : PixelProof - Image Forensic Examination Toolkit
+Course       : SPPU BE Computer Engineering
+Subject      : Cyber Security and Digital Forensics (CSDF)
+Project type : Mini Project
+Language     : Python 3.10+
+Current state: Modules 1, 2 and 3 implemented and tested (21 tests passing)
+Pending      : Module 4 (copy-move), Module 5 (steganography),
+               Module 6 (verdict + PDF report + Streamlit UI)
+
+One-line pitch:
+"An offline, modular image-forensics tool that checks file integrity, reads
+metadata, detects compression inconsistencies, finds hidden data, and produces
+an evidence report with a verdict."
+
+------------------------------------------------------------------------------
+HOW TO USE THIS FILE FOR A PPT
+------------------------------------------------------------------------------
+This file is organised so each section can become one slide. A ready-made
+15-slide plan is given near the end. The most important slides for a demo are:
+
+  Slide 1  Title
+  Slide 2  Problem statement and motivation
+  Slide 3  Objectives
+  Slide 4  Proposed system / architecture
+  Slide 5  Module 1 - File analysis
+  Slide 6  Module 2 - Metadata and GPS
+  Slide 7  Module 3 - Error Level Analysis
+  Slide 8  Modules 4-6 - Planned detection and reporting
+  Slide 9  Tech stack and folder structure
+  Slide 10 Sample dataset
+  Slide 11 Results table
+  Slide 12 ELA heatmap screenshots
+  Slide 13 Testing
+  Slide 14 Limitations and future scope
+  Slide 15 Conclusion and demo
+
+===============================================================================
+1. PROJECT TITLE
+===============================================================================
+PixelProof - Image Forensic Examination Toolkit
+
+Tagline:
+"Verify the file. Read the metadata. Expose the edit. Find the hidden data."
+
+Domain:
+Digital forensics / image forensics / cyber security.
+
+===============================================================================
+2. PROBLEM STATEMENT
+===============================================================================
+Design and develop a tool for digital forensics of images.
+
+When an image is submitted as evidence, an investigator must answer:
+
+  1. Is the file what it claims to be, and has it changed?
+     - Hashes, magic bytes, extension agreement, timestamps.
+
+  2. Was it edited, retouched, spliced or composited?
+     - EXIF clues, Error Level Analysis (ELA), copy-move detection.
+
+  3. Is data hidden inside it?
+     - LSB plane analysis, chi-square attack, appended payload detection.
+
+  4. Can the findings be presented in a defensible, reproducible form?
+     - Structured findings, confidence, thresholds, hashes, PDF report.
+
+Most basic tools only show metadata or only produce a heatmap. They do not
+combine file integrity, metadata, pixel analysis and a final evidence report in
+one offline workflow. PixelProof fills that gap.
+
+===============================================================================
+3. MOTIVATION / WHY IMAGE FORENSICS MATTERS
+===============================================================================
+- Photos are used as evidence in cyber-crime, insurance, journalism, legal and
+  academic cases.
+- Images are easy to edit with Photoshop, GIMP, Snapseed, AI tools and phone
+  filters.
+- Metadata can be edited or stripped in seconds.
+- Social media re-encodes and removes provenance.
+- A single technique is never enough: metadata can be forged, ELA can produce
+  false positives, and LSB checks fail on JPEG.
+- Investigators need a tool that combines multiple independent signals and
+  clearly separates observation from interpretation.
+
+===============================================================================
+4. OBJECTIVES
+===============================================================================
+1. Verify file integrity using MD5, SHA-1 and SHA-256.
+2. Detect file-type spoofing using magic bytes and extension checks.
+3. Extract EXIF, GPS, XMP and PNG text metadata.
+4. Detect suspicious metadata: editor tags, AI-generator tags, timestamp
+   mismatches and embedded-thumbnail mismatches.
+5. Detect local compression inconsistencies using Error Level Analysis.
+6. Detect copy-move forgery using keypoint matching and geometric verification.
+7. Detect hidden data using LSB analysis, chi-square attack and appended-payload
+   scanning.
+8. Combine module scores into a final verdict.
+9. Generate a PDF evidence report and provide a simple UI.
+10. Keep the evidence read-only and keep all derived artifacts under output/.
+
+===============================================================================
+5. PROPOSED SYSTEM OVERVIEW
+===============================================================================
+PixelProof is a modular, offline pipeline:
+
+  Input image
+      |
+      v
+  Validate and hash (read-only)
+      |
+      v
+  Run independent analyzers:
+      - file_analysis
+      - metadata
+      - ela
+      - copymove
+      - stego
+      |
+      v
+  Each analyzer returns a standard result:
+      module, status, summary, score, findings, metrics, artifacts
+      |
+      v
+  verdict.py combines scores and findings
+      |
+      v
+  report.py builds a PDF evidence report
+      |
+      v
+  app.py (Streamlit) displays tabs and allows PDF download
+
+Key design rules:
+- Evidence is never modified.
+- Analysis is offline; no uploads or cloud AI.
+- Thresholds live in utils/config.py and are stated in the report.
+- A module failure returns a structured error, not a crash.
+- Findings are leads, not proof; the verdict shows supporting and contradicting
+  evidence.
+
+===============================================================================
+6. ARCHITECTURE
+===============================================================================
+Text diagram for a PPT slide:
+
++----------------------------- app.py (Streamlit) -----------------------------+
+| upload -> validate -> run pipeline -> tabs/results -> download PDF           |
+| UI only: no forensic logic and no thresholds                                  |
++------------------------------------+------------------------------------------+
+                                     |
+                                     v
++----------------------- forensics modules (pure functions) -------------------+
+|                                                                              |
+| file_analysis -> metadata -> ela -> copymove -> stego                        |
+|       |              |         |        |         |                         |
+|       +--------------+---------+--------+---------+                         |
+|                    each returns a ModuleResult                               |
++------------------------------------+------------------------------------------+
+                                     |
+                                     v
++------------------------------- verdict.py -----------------------------------+
+| weighted score + severity + reasoning -> verdict label                       |
++------------------------------------+------------------------------------------+
+                                     |
+                                     v
++------------------------------- report.py (ReportLab) ------------------------+
+| case ID, examiner, hashes, findings, images, verdict                         |
++------------------------------------------------------------------------------+
+
+Data flow:
+1. Upload bytes are saved exactly as received under output/cases/<case_id>/.
+2. load_image() runs Pillow verify(), reopens and forces load().
+3. Each analyzer receives the evidence path and reads it without writing.
+4. Each analyzer returns the standard dictionary described below.
+5. verdict.py combines module scores and findings.
+6. report.py embeds original and derived images plus all findings.
+7. Streamlit renders tabs: Overview, Metadata, ELA, Copy-Move, Stego, Report.
+
+Standard ModuleResult contract:
+
+{
+  "module": "metadata",
+  "status": "ok" | "error",
+  "summary": "22 EXIF tags - Canon EOS 90D - GPS 12.9750, 77.5944",
+  "score": 0.0,                 # this module's 0-100 manipulation signal
+  "findings": [
+      {
+        "severity": "medium",
+        "title": "Editing or processing software recorded",
+        "detail": "Metadata names Adobe Photoshop ...",
+        "confidence": 0.85,
+        "tags": ["editor", "provenance"]
+      }
+  ],
+  "metrics": { ... },           # raw facts used by the report
+  "artifacts": ["output/..."]  # derived images / files
+}
+
+===============================================================================
+7. MODULE 1 - FILE ANALYSIS AND INTEGRITY (IMPLEMENTED)
+===============================================================================
+File: forensics/file_analysis.py
+
+Purpose:
+Identify the real file type and prove that the evidence bytes have not changed.
+
+Features:
+- MD5, SHA-1 and SHA-256 hashes of the exact evidence bytes.
+- Magic-byte detection for JPEG, PNG, GIF, BMP, TIFF, WEBP and more.
+- Extension vs real-format comparison.
+- Double-extension detection, e.g. holiday.jpg.exe.
+- Image dimensions, colour mode, frame count, file size and filesystem
+  timestamps.
+- Corrupt, empty, oversized and non-image files return structured errors.
+- Limits: 50 MB file size, 80,000,000 pixels (decompression-bomb guard).
+
+Why it matters:
+- A hash is the integrity anchor of the report.
+- A renamed file (JPEG bytes named .png) is a common trick.
+- A double extension is a common malware delivery pattern.
+- A corrupt file cannot be analysed reliably; report it as an error.
+
+Findings produced:
+- Signature/extension mismatch.
+- Double extension.
+- Unusual or uncommon container.
+- Missing or unreadable pixels.
+- Hashes for chain of custody.
+
+Example:
+python -m forensics.file_analysis samples/original/original_demo.jpg
+
+Expected clean result:
+status ok, score 0.0, JPEG, 1200x800, signature/extension match.
+
+Tests: 6 (tests/test_file_analysis.py)
+
+===============================================================================
+8. MODULE 2 - EXIF / GPS / METADATA ANALYSIS (IMPLEMENTED)
+===============================================================================
+File: forensics/metadata.py
+
+Purpose:
+Extract provenance clues and detect metadata that is inconsistent or written by
+editing/AI software.
+
+Features:
+- Full EXIF tag extraction with ExifRead and Pillow.
+- Camera make, model, lens, serial number, software, artist and copyright.
+- Capture timestamps: DateTimeOriginal, DateTimeDigitized, DateTime.
+- GPS conversion:
+    decimal latitude/longitude
+    degrees-minutes-seconds (DMS)
+    altitude
+    UTC time
+    OpenStreetMap link
+- XMP packet extraction (CreatorTool, CreateDate, C2PA fields).
+- PNG text chunk extraction (parameters, prompt, Software, Comment).
+- Timestamp coherence checks:
+    DateTime differs from DateTimeOriginal
+    digitised time before capture time
+    capture time in the future
+    file modified well after capture
+- Editor keyword detection:
+    Photoshop, Lightroom, GIMP, Snapseed, Canva, PicsArt, VSCO, etc.
+- Generative-AI keyword detection:
+    Midjourney, DALL-E, Stable Diffusion, ComfyUI, Firefly, etc.
+- Embedded EXIF thumbnail extraction and dHash comparison with the main image.
+- 150 safe, size-limited EXIF tags stored in metrics for the report.
+
+Score examples:
+- Editing software recorded                 -> score 30
+- AI-generator metadata detected            -> score 60
+- Embedded thumbnail does not match image   -> score 70
+- DateTime differs from DateTimeOriginal    -> score 25
+- Digitised time before capture             -> score 35
+- Capture timestamp in the future           -> score 35
+
+Clean sample result:
+22 EXIF tags - Canon EOS 90D - GPS 12.9750, 77.5944
+Camera: Canon EOS 90D, lens EF-S 18-135mm f/3.5-5.6 IS USM
+GPS: 12.975, 77.594444, altitude 920 m
+Score: 0
+
+Edited metadata sample:
+score 30, editor: Adobe Photoshop, DateTime mismatch.
+
+Why it matters:
+EXIF is useful corroboration, but it is easy to edit or strip. Missing EXIF is
+common after social media and screenshots. An editor tag is a lead, not proof
+of malicious intent.
+
+Privacy note:
+GPS is sensitive personal data. The tool stays offline and shows coordinates
+plus an OpenStreetMap link; it does not perform reverse geocoding.
+
+Tests: 9 (tests/test_metadata.py)
+
+===============================================================================
+9. MODULE 3 - ERROR LEVEL ANALYSIS (IMPLEMENTED)
+===============================================================================
+File: forensics/ela.py
+
+Purpose:
+Detect local compression inconsistencies that may indicate a pasted, edited or
+re-encoded region.
+
+How ELA works:
+1. Re-save the image as JPEG at a fixed quality (default 90).
+2. Compare the re-saved pixels with the original pixels.
+3. Take the maximum absolute difference across R, G and B.
+4. Amplify the difference into a heatmap.
+5. Areas that were already at the same compression level change little;
+   a region pasted after the last save often changes more.
+
+Why a naive threshold fails:
+Sharp edges, texture, noise, denoising, resizing and earlier JPEG saves all
+produce residuals. A clean photo can show bright mountain rims, horizons and
+bushes. Automatic scoring must therefore look for compact, dense regions, not
+simply "bright pixels".
+
+Implemented detector:
+1. Compute the ELA residual.
+2. Average it into 16x16 blocks.
+3. Robust threshold:
+      threshold = max(0.50, median + 4 x MAD)
+4. Local density:
+      in a 9x9-block window, at least 50% of blocks must be high-residual.
+      This rejects thin horizon/roof/branch edges.
+5. Connected components:
+      minimum 12 blocks (about 3072 px),
+      minimum width and height of 3 blocks.
+6. Region validation:
+      mean residual inside the region >= 0.70,
+      region mean / surrounding-ring median >= 2.0.
+7. Score:
+      score = min(95,
+                  20 + 40*area_term + 25*strength_term + 10*contrast_term)
+
+Outputs:
+- ela_<stem>_heat.png       : colourised ELA heatmap
+- ela_<stem>_overlay.png    : heatmap on original, regions outlined in red
+- ela_<stem>_comparison.png : side-by-side original and heatmap
+
+Verified results:
+- original_demo.jpg      -> score 0.0, 0 dense regions
+- edited_metadata.jpg    -> score 0.0 (metadata-only edit, pixels unchanged)
+- spliced_demo.jpg       -> score 84.3, 1 dense region
+                            pixel box [144,128]-[432,352]
+                            mean residual 1.044, ring 0.190, contrast 5.5x
+- retouched_demo.jpg     -> score 0.0 (smooth brightness/contrast edit)
+- retouched_strong.jpg   -> score 0.0 (blur lowers the residual)
+
+Important limitation:
+ELA detects compression-history discontinuities, not semantic edits. A smooth
+brightness change may not create a new high-frequency residual, and blurring
+can lower it. A negative ELA result is not proof of authenticity.
+
+Tests: 6 (tests/test_ela.py)
+
+===============================================================================
+10. MODULE 4 - COPY-MOVE FORGERY DETECTION (PLANNED)
+===============================================================================
+File: forensics/copymove.py
+Status: Not implemented yet. Planned as the next module.
+
+Goal:
+Detect a region copied and pasted elsewhere in the same image.
+
+Planned method:
+1. Resize huge images to a safe working size (max side 900 px).
+2. Extract ORB keypoints and descriptors (budget 3000 features).
+3. Match descriptors with a Lowe ratio test (ratio 0.75).
+4. Reject matches that are almost on top of each other (spatial distance < 30).
+5. Require at least 8 matches.
+6. Geometrically verify with RANSAC (3 px tolerance) to keep consistent
+   translation/rotation/scale.
+7. Mark matched keypoints and draw the duplicated region on an overlay/mask.
+8. Fallback: block matching for flat regions where ORB finds few keypoints.
+
+Output:
+- output/copymove_results/copymove_<stem>_overlay.png
+- output/copymove_results/copymove_<stem>_mask.png
+
+Configuration:
+COPYMOVE = {
+    "orb_features": 3000,
+    "match_ratio": 0.75,
+    "min_matches": 8,
+    "min_spatial_distance": 30,
+    "ransac_px": 3.0,
+    "max_side": 900,
+}
+
+Limitations:
+- Flat sky/wall regions have few keypoints.
+- Rotation/scaling can reduce matches.
+- A duplicated region must be large/textured enough.
+
+===============================================================================
+11. MODULE 5 - STEGANOGRAPHY CHECKS (PLANNED)
+===============================================================================
+File: forensics/stego.py
+Status: Not implemented yet.
+
+Goal:
+Detect data hidden inside an image, especially LSB replacement and appended
+payloads.
+
+Planned checks:
+1. LSB plane analysis:
+   - Extract the least-significant bit plane.
+   - Measure entropy and even/odd balance.
+   - Sequential LSB replacement makes 0/1 unusually balanced.
+2. Chi-square attack:
+   - Compare observed even/odd value-pair frequencies with the expected
+     distribution.
+   - A high p-value suggests LSB replacement.
+3. Appended-payload detection:
+   - PNG ends with IEND.
+   - JPEG ends with FF D9.
+   - GIF ends with 3B.
+   - Bytes after the end marker are ignored by viewers but can carry a ZIP,
+     PDF or executable.
+   - Extract and hash the bytes; never execute them.
+4. Visual LSB plane artifact for the report.
+
+Configuration:
+STEGO = {
+    "min_appended_bytes": 16,
+    "lsb_entropy_threshold": 0.92,
+    "chi_square_p_threshold": 0.95,
+}
+
+Important:
+JPEG compression destroys most LSB payloads. LSB/chi-square checks are strongest
+on PNG, BMP and TIFF. A negative result does not prove there is no steganography.
+
+===============================================================================
+12. MODULE 6 - VERDICT + PDF REPORT + UI (PLANNED)
+===============================================================================
+Files:
+- forensics/verdict.py
+- forensics/report.py
+- app.py
+
+Verdict:
+Weighted score:
+    file_analysis_score x 0.15
+  + metadata_score     x 0.20
+  + ela_score          x 0.20
+  + copymove_score     x 0.30
+  + stego_score        x 0.15
+
+Verdict bands:
+    0-19    Likely authentic
+    20-49   Suspicious
+    50-100  Likely tampered
+
+The report will list supporting and contradicting findings. A single high score
+must never be shown without its reasoning.
+
+PDF report contents:
+- Case ID, examiner, date and tool version.
+- SHA-256 digest and file facts.
+- Module summaries and findings with severity/confidence.
+- GPS and map link.
+- Original image, ELA heatmap, copy-move overlay and stego artifact.
+- Final verdict and reasoning.
+- Thresholds used, so another examiner can reproduce the result.
+
+Streamlit UI:
+- Upload image.
+- Validate and persist the exact bytes.
+- Run the pipeline.
+- Tabs: Overview, Metadata, ELA, Copy-Move, Stego, Report.
+- Download the PDF.
+
+===============================================================================
+13. TECH STACK
+===============================================================================
+Layer                     Library / tool
+------------------------  ----------------------------------------------------
+Language                  Python 3.10+
+Image decoding            Pillow
+Pixel analysis            OpenCV (opencv-python-headless), NumPy
+EXIF                      ExifRead + Pillow
+Plots / heatmaps          Matplotlib
+PDF report                ReportLab
+UI                        Streamlit
+Hashing                   hashlib (standard library)
+Tests                     unittest (standard library)
+
+Everything runs locally. There are no network calls and no uploads to a
+third-party service.
+
+===============================================================================
+14. PROJECT STRUCTURE
+===============================================================================
+image-forensics-tool/
+  app.py                      # Streamlit UI (Module 6)
+  requirements.txt
+  README.md
+  summary.txt                 # this file
+
+  forensics/                  # Core analysis: no UI code here
+    __init__.py               # finding() + module_result() contract
+    file_analysis.py          # Module 1: hashes, magic bytes, timestamps
+    metadata.py               # Module 2: EXIF, GPS, suspicious tags
+    ela.py                    # Module 3: ELA heatmap + dense regions
+    copymove.py               # Module 4: planned
+    stego.py                  # Module 5: planned
+    verdict.py                # Module 6: planned score aggregation
+    report.py                 # Module 6: planned PDF report
+
+  utils/
+    __init__.py
+    image_utils.py            # safe load/validate/convert
+    config.py                 # thresholds, paths, constants
+
+  samples/
+    original/
+      original_demo.jpg       # clean camera-style sample with EXIF + GPS
+      original_demo.png       # lossless sibling for stego tests
+    tampered/
+      edited_metadata.jpg     # Photoshop tag + date mismatch
+      spliced_demo.jpg        # foreign patch pasted into sky
+      copymove_demo.jpg       # duplicated region (for Module 4)
+      retouched_demo.jpg      # smooth brightness/contrast retouch
+      retouched_strong.jpg    # blur/sharpen retouch
+    stego/                    # generated in Module 5
+
+  output/
+    ela_results/              # heat, overlay, comparison images
+    copymove_results/         # planned
+    metadata_results/         # extracted EXIF thumbnails
+    reports/                  # planned PDF reports
+    cases/                    # per-case evidence copies (UI phase)
+
+  tests/
+    test_file_analysis.py     # 6 tests
+    test_metadata.py          # 9 tests
+    test_ela.py               # 6 tests
+
+  docs/
+    architecture.png          # to be exported for submission
+    dataflow.png
+    screenshots/
+
+===============================================================================
+15. INSTALLATION
+===============================================================================
+Linux / macOS:
+  cd image-forensics-tool
+  python3 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install --upgrade pip
+  pip install -r requirements.txt
+
+Windows PowerShell / CMD:
+  cd image-forensics-tool
+  py -m venv .venv
+  .venv\Scripts\activate
+  python -m pip install --upgrade pip
+  pip install -r requirements.txt
+
+Verify:
+  python -c "import PIL, numpy, cv2, exifread, reportlab, streamlit; print('ok')"
+
+If pip reports "externally-managed-environment", activate .venv first.
+
+===============================================================================
+16. HOW TO RUN (CURRENT MODULES)
+===============================================================================
+Run from the project root with the virtual environment active.
+
+Module 1 - File analysis:
+  python -m forensics.file_analysis samples/original/original_demo.jpg
+  python -m forensics.file_analysis samples/original/original_demo.jpg --json
+
+Module 2 - Metadata / EXIF / GPS:
+  python -m forensics.metadata samples/original/original_demo.jpg
+  python -m forensics.metadata samples/tampered/edited_metadata.jpg
+
+Module 3 - ELA:
+  python -m forensics.ela samples/original/original_demo.jpg
+  python -m forensics.ela samples/tampered/spliced_demo.jpg
+  python -m forensics.ela samples/tampered/spliced_demo.jpg --quality 85
+  python -m forensics.ela samples/tampered/spliced_demo.jpg --json
+
+All three in sequence:
+  python -m forensics.file_analysis samples/original/original_demo.jpg
+  python -m forensics.metadata     samples/original/original_demo.jpg
+  python -m forensics.ela          samples/original/original_demo.jpg
+
+Tests:
+  python -m unittest discover -s tests -v
+
+Future full UI:
+  streamlit run app.py
+  # open http://localhost:8501
+
+Exit codes:
+  0 = image decoded and analysed
+  2 = file missing, corrupt, too large or not an image
+
+===============================================================================
+17. SAMPLE DATASET
+===============================================================================
+Sample                          Purpose
+------------------------------  ----------------------------------------------
+original_demo.jpg               Clean camera-style original with Canon EXIF,
+                                GPS (12.9750 N, 77.5944 E, 920 m) and XMP.
+original_demo.png               Lossless sibling used for future LSB tests.
+edited_metadata.jpg             Metadata-only edit: Photoshop tag and changed
+                                DateTime. Pixels are unchanged.
+spliced_demo.jpg                Foreign textured patch pasted into the sky.
+                                Used to validate ELA.
+copymove_demo.jpg               Duplicated region. Reserved for Module 4.
+retouched_demo.jpg              Smooth local brightness/contrast retouch.
+retouched_strong.jpg            Blur/sharpen retouch.
+stego/                          Appended-payload and LSB samples planned for
+                                Module 5.
+
+Why these samples:
+- One clean control.
+- One metadata-only control.
+- One compression-history tamper (splice).
+- Two smooth retouch controls that show ELA's limits.
+- One copy-move sample and one stego sample for the remaining modules.
+
+===============================================================================
+18. CURRENT RESULTS
+===============================================================================
+Sample                    File score   Metadata score   ELA score
+------------------------  ----------   --------------   ---------
+original_demo.jpg             0.0           0.0            0.0
+original_demo.png             0.0           0.0            0.0
+edited_metadata.jpg           0.0          30.0            0.0
+spliced_demo.jpg              0.0           0.0           84.3
+copymove_demo.jpg             0.0           0.0            0.0
+retouched_demo.jpg            0.0           0.0            0.0
+retouched_strong.jpg          0.0           0.0            0.0
+
+Interpretation:
+- The clean image scores zero in all implemented modules.
+- The metadata-only edit is caught by metadata (30) but not by ELA, because
+  the pixels did not change. This is the correct behaviour.
+- The splice is caught by ELA (84.3) with one dense region around the patch.
+- Smooth retouch and blur are not caught by ELA. This is an honest limitation;
+  copy-move/noise analysis is needed for those edits.
+
+Clean metadata details:
+- 22 EXIF tags.
+- Camera: Canon EOS 90D.
+- Lens: EF-S 18-135mm f/3.5-5.6 IS USM.
+- Serial: SN-DEMO-000123.
+- GPS: 12.975000 N, 77.594444 E; altitude 920 m.
+- Map: https://www.openstreetmap.org/?mlat=12.975000&mlon=77.594444
+
+Splice ELA details:
+- Pixel box: [144, 128] to [432, 352].
+- 172 dense blocks.
+- Mean residual: 1.044.
+- Surrounding-ring median: 0.190.
+- Contrast: 5.5x.
+- Severity: high.
+- Confidence: 0.91.
+
+===============================================================================
+19. ARTIFACTS / SCREENSHOTS FOR THE PPT
+===============================================================================
+ELA artifacts (already generated):
+
+  output/ela_results/ela_original_demo_heat.png
+  output/ela_results/ela_original_demo_overlay.png
+  output/ela_results/ela_original_demo_comparison.png
+
+  output/ela_results/ela_spliced_demo_heat.png
+  output/ela_results/ela_spliced_demo_overlay.png
+  output/ela_results/ela_spliced_demo_comparison.png
+
+  output/ela_results/ela_edited_metadata_heat.png
+  output/ela_results/ela_edited_metadata_overlay.png
+  output/ela_results/ela_edited_metadata_comparison.png
+
+  output/ela_results/ela_retouched_demo_heat.png
+  output/ela_results/ela_retouched_demo_overlay.png
+  output/ela_results/ela_retouched_demo_comparison.png
+
+  output/ela_results/ela_retouched_strong_heat.png
+  output/ela_results/ela_retouched_strong_overlay.png
+  output/ela_results/ela_retouched_strong_comparison.png
+
+Best PPT images:
+1. ela_spliced_demo_comparison.png
+   Side-by-side original and ELA heatmap. The pasted patch is clearly visible.
+2. ela_spliced_demo_overlay.png
+   Heatmap on the original with the detected region outlined in red.
+3. ela_original_demo_comparison.png
+   Clean control. Edges glow, but no dense region is flagged.
+4. output/metadata_results/thumb_<name>.png
+   Extracted EXIF thumbnail, if present.
+
+===============================================================================
+20. TESTING
+===============================================================================
+Command:
+  python -m unittest discover -s tests -v
+
+Current result:
+  Ran 21 tests in 2.119s
+  OK
+
+Coverage:
+Module 1 (6 tests):
+- hashes match hashlib
+- clean sample consistency
+- magic-byte detection
+- renamed extension
+- double extension
+- corrupt file handling
+
+Module 2 (9 tests):
+- camera and XMP extraction
+- GPS decimal + map link + altitude
+- missing EXIF is low severity, not a crash
+- editor software is flagged
+- AI generator metadata is flagged
+- date mismatch is flagged
+- future date is flagged
+- datetime parser variants
+- corrupt metadata input
+
+Module 3 (6 tests):
+- clean image scores low
+- spliced image is detected with an overlapping region
+- ELA artifacts are written and readable
+- metadata-only edit does not raise ELA
+- corrupt ELA input returns a structured error
+- block-grid and density-map maths
+
+Negative controls to demonstrate:
+- Rename a JPEG to .png -> Module 1 mismatch finding.
+- Copy a JPEG to holiday.jpg.exe -> double-extension finding.
+- Create a text file named corrupt.jpg -> structured error, exit code 2.
+- PNG without EXIF -> Module 2 low "No EXIF metadata" finding.
+
+===============================================================================
+21. CONFIGURATION / THRESHOLDS
+===============================================================================
+File: utils/config.py
+
+Input rules:
+  MAX_FILE_MB            50
+  MAX_IMAGE_PIXELS       80,000,000
+  Supported extensions   jpg, jpeg, jpe, jfif, png, gif, bmp, tif, tiff, webp
+
+ELA:
+  quality                90
+  amplify                15       (heatmap display only)
+  block_size             16
+  outlier_z              4.0      (median + 4 x MAD)
+  abs_floor              0.50
+  density_window         9
+  density_threshold      0.50
+  min_cluster_blocks     12
+  min_mean_residual      0.70
+  min_contrast           2.0
+
+Copy-move:
+  orb_features           3000
+  match_ratio            0.75
+  min_matches            8
+  min_spatial_distance   30
+  ransac_px              3.0
+  max_side               900
+
+Stego:
+  min_appended_bytes     16
+  lsb_entropy_threshold  0.92
+  chi_square_p_threshold 0.95
+
+Verdict:
+  weights                file 0.15, metadata 0.20, ELA 0.20,
+                         copy-move 0.30, stego 0.15
+  authentic              score < 20
+  suspicious             20 <= score < 50
+  likely tampered        score >= 50
+
+===============================================================================
+22. FORENSIC PRINCIPLES USED
+===============================================================================
+1. Never modify the evidence.
+   All modules open files read-only. Derived images are written under output/.
+
+2. Hash before and after analysis.
+   SHA-256 is the primary digest. A changed hash invalidates the result.
+
+3. Record the tool and thresholds.
+   The report states the version and parameters so the result is reproducible.
+
+4. Separate observation from interpretation.
+   metrics contain raw facts; findings contain interpretations with confidence.
+
+5. Corroborate.
+   A metadata mismatch, ELA region or LSB anomaly is a lead, not a verdict.
+   The final score combines independent signals.
+
+6. Stay offline.
+   No automatic reverse geocoding, cloud AI or uploads. GPS is shown as
+   coordinates plus an OpenStreetMap link that the examiner opens deliberately.
+
+7. Chain of custody.
+   Document who handled the evidence, when, and what they did. The hash chain
+   in the UI phase will make tampering with the audit log detectable.
+
+===============================================================================
+23. THEORY NOTES FOR VIVA
+===============================================================================
+Cryptographic hashing:
+A hash maps arbitrary bytes to a fixed-length fingerprint. A one-bit change
+produces a completely different digest (avalanche effect). SHA-256 is used for
+integrity; MD5/SHA-1 are kept only for legacy compatibility and are not
+collision-resistant.
+
+Magic bytes:
+The first bytes identify the real format:
+  JPEG  FF D8 FF
+  PNG   89 50 4E 47 0D 0A 1A 0A
+  GIF   47 49 46 38
+  BMP   42 4D
+The extension is only a name. Comparing magic, extension and decoder output
+detects renamed or polyglot files.
+
+EXIF:
+Exchangeable Image File Format is a TIFF-style metadata block. It stores camera
+make/model, lens, exposure, capture time, GPS and an embedded thumbnail. It can
+be edited with ExifTool, piexif or Pillow, so it is corroboration, not proof.
+
+JPEG compression:
+JPEG splits the image into 8x8 blocks, applies DCT, quantises coefficients and
+stores them with entropy coding. Quality controls the quantisation table. Every
+save is lossy and leaves a compression history.
+
+Error Level Analysis:
+Re-save at a fixed quality and compare with the original. A region with a
+different compression history often has a different residual. ELA is a
+heuristic: texture, sharp edges, prior compression, resizing and denoising also
+produce residuals.
+
+Why dense-region filtering:
+A horizon, roof edge or branch is a thin line, so its local density of
+high-residual blocks is low. A pasted region is filled, so its local density is
+high. This is the main reason the tool avoids flagging every sharp edge.
+
+Copy-move forgery:
+A region is copied and pasted elsewhere in the same image. ORB/SIFT keypoints
+are extracted, matched with a ratio test, and geometrically verified (RANSAC).
+The matched points reveal the duplicated region. Flat areas have few keypoints,
+so block matching is a useful fallback.
+
+LSB steganography:
+In an 8-bit channel, the least-significant bit changes the pixel value by at
+most 1 and is visually invisible. Sequential LSB replacement makes even/odd
+value pairs unusually equal, which a chi-square attack can detect. It also
+raises the entropy of the LSB plane. JPEG compression destroys most LSB
+payloads, so this check is strongest on PNG/BMP/TIFF.
+
+Appended data:
+Many formats declare an end marker (PNG IEND, JPEG FF D9, GIF 3B). Bytes after
+that marker are ignored by viewers but can carry a ZIP, PDF or executable. The
+tool extracts and hashes them without executing anything.
+
+dHash:
+A difference hash resizes the image to 9x8 grayscale, compares adjacent pixels
+and produces a 64-bit fingerprint. It is robust to resizing and mild
+recompression, which makes it useful for comparing an EXIF thumbnail with the
+main image.
+
+Chain of custody:
+A documented record of who handled the evidence, when, and what they did. The
+hash chain in the UI phase will make tampering with the audit log detectable.
+
+===============================================================================
+24. LIMITATIONS
+===============================================================================
+- Not court-validated software. It is an educational tool, not a replacement
+  for validated forensic suites.
+- ELA is not proof. Strong texture, denoising, resizing and repeated JPEG
+  compression create false positives.
+- ELA misses some edits. A smooth brightness/contrast change does not create a
+  new high-frequency residual, and blurring lowers it. Small pasted objects can
+  fall below the 12-block minimum area. A negative ELA result is not proof of
+  authenticity.
+- ELA detects compression history, not intent. A region re-saved at a different
+  quality is flagged even if the change was a harmless export.
+- Copy-move misses some edits. Flat regions (sky, walls) have few ORB
+  keypoints; rotation/scaling can reduce matches; block matching is limited.
+- LSB checks only work on lossless images. JPEG compression destroys LSB
+  payloads; a negative LSB result does not prove there is no steganography.
+- EXIF is easy to forge or strip. Missing EXIF is common after social media
+  and screenshots; an editor tag is not automatically malicious.
+- No reverse geocoding. The tool stays offline; it provides coordinates and an
+  OpenStreetMap link instead of a place name.
+- No PRNU / CFA / deepfake model. Source-camera identification and AI-generated
+  image detection are limited to metadata heuristics.
+- Thresholds are empirical. They are documented and configurable but not
+  trained on a large labelled corpus.
+- Single-file analysis. No batch mode, case database, video or disk images.
+- GPS link needs a browser and internet to display the map; the analysis
+  itself remains offline.
+
+===============================================================================
+25. FUTURE SCOPE
+===============================================================================
+- PRNU-based camera identification and CFA/interpolation analysis.
+- JPEG ghost and double-compression detection.
+- Deep-learning tamper/localisation models (CASIA, Coverage, NIST16).
+- C2PA / Content Credentials verification.
+- Perceptual-hash reverse-image-search integration.
+- Batch analysis and a searchable case database.
+- Signed, timestamped PDF/A reports with an audit hash chain.
+- Role-based access and evidence encryption at rest.
+- Video frame extraction and deepfake detection.
+- Mobile/field capture companion app.
+- Integration with Autopsy/FTK as a plug-in.
+
+===============================================================================
+26. CONCLUSION
+===============================================================================
+PixelProof combines file-integrity checks, metadata analysis and pixel-level
+ELA into a single offline workflow. It produces structured findings, confidence,
+heatmaps and a reproducible record instead of a single opaque "edited" label.
+Modules 1-3 are implemented and validated on clean, metadata-edited, spliced and
+retouched samples, with 21 passing tests. The remaining modules add copy-move
+detection, steganography checks, score aggregation, a PDF evidence report and a
+Streamlit UI.
+
+Key takeaway:
+No single forensic signal is proof. The strength of the tool is corroboration:
+hashes, metadata, compression history, duplicated regions and hidden-data
+checks are presented together, with their limitations stated.
+
+===============================================================================
+27. LIVE DEMO SCRIPT
+===============================================================================
+Step 1 - Show the clean original:
+  python -m forensics.file_analysis samples/original/original_demo.jpg
+  python -m forensics.metadata samples/original/original_demo.jpg
+  python -m forensics.ela samples/original/original_demo.jpg
+
+Say:
+"The clean image has matching signature/extension, 22 EXIF tags, Canon EOS 90D,
+GPS coordinates, and no dense ELA region."
+
+Step 2 - Show the metadata-only edit:
+  python -m forensics.metadata samples/tampered/edited_metadata.jpg
+
+Say:
+"Metadata flags Photoshop and a timestamp mismatch, but ELA stays at zero
+because the pixels did not change. This shows why modules are independent."
+
+Step 3 - Show the splice:
+  python -m forensics.ela samples/tampered/spliced_demo.jpg
+
+Say:
+"ELA finds one dense region around the pasted patch with 5.5x contrast against
+its surroundings. Open the comparison image to show the patch."
+
+Step 4 - Show the artifacts:
+  Open:
+    output/ela_results/ela_spliced_demo_comparison.png
+    output/ela_results/ela_spliced_demo_overlay.png
+
+Step 5 - Show tests:
+  python -m unittest discover -s tests -v
+
+Say:
+"21 tests pass, including clean control, splice detection, artifact checks and
+corrupt-input handling."
+
+Step 6 - State the next steps:
+  Module 4 copy-move, Module 5 steganography, Module 6 verdict/PDF/UI.
+
+===============================================================================
+28. READY-MADE 15-SLIDE PPT PLAN
+===============================================================================
+Slide 1 - Title
+  PixelProof - Image Forensic Examination Toolkit
+  SPPU BE Computer Engineering - CSDF Mini Project
+  Name, roll number, guide, institute, year.
+
+Slide 2 - Problem Statement
+  - Images are easy to edit, re-save and strip of metadata.
+  - Investigators need to verify integrity, detect edits and find hidden data.
+  - Existing tools usually cover only one of these.
+  - Problem: design and develop a tool for digital forensics of images.
+
+Slide 3 - Objectives
+  - Hash and verify file integrity.
+  - Detect file-type spoofing.
+  - Extract EXIF/GPS/XMP and flag suspicious metadata.
+  - Detect compression inconsistencies with ELA.
+  - Detect copy-move forgery.
+  - Detect LSB/appended-data steganography.
+  - Produce a verdict and PDF evidence report.
+
+Slide 4 - Proposed System / Architecture
+  - Show the text architecture diagram from Section 6.
+  - Mention: modular analyzers -> standard ModuleResult -> verdict -> PDF/UI.
+  - Evidence read-only, offline, thresholds in config.
+
+Slide 5 - Module 1: File Analysis
+  - MD5/SHA-1/SHA-256.
+  - Magic bytes vs extension.
+  - Double extension.
+  - Dimensions, mode, frames, timestamps.
+  - Corrupt/oversized handling.
+  - Result: clean sample score 0.
+
+Slide 6 - Module 2: Metadata and GPS
+  - EXIF camera/lens/serial/software.
+  - GPS decimal, DMS, altitude, OSM link.
+  - XMP and PNG text.
+  - Timestamp checks.
+  - Editor/AI keyword detection.
+  - Embedded thumbnail dHash.
+  - Result: clean 0, edited metadata 30.
+
+Slide 7 - Module 3: ELA
+  - Re-save at q90, compute residual.
+  - 16x16 blocks, robust threshold.
+  - 9x9 density window, region validation.
+  - Artifacts: heatmap, overlay, comparison.
+  - Result: splice 84.3, clean 0.
+
+Slide 8 - Modules 4-6: Planned
+  - Copy-move: ORB + ratio test + RANSAC.
+  - Stego: LSB entropy, chi-square, appended payload.
+  - Verdict: weighted score.
+  - Report: PDF + Streamlit UI.
+
+Slide 9 - Tech Stack and Folder Structure
+  - Python, Pillow, OpenCV, NumPy, Matplotlib, ExifRead, ReportLab, Streamlit.
+  - Show the folder tree.
+  - Mention offline execution.
+
+Slide 10 - Sample Dataset
+  - Clean original with EXIF/GPS.
+  - Metadata-only edit.
+  - Spliced image.
+  - Copy-move sample.
+  - Smooth and strong retouch controls.
+  - Lossless PNG sibling.
+
+Slide 11 - Results Table
+  - Show the table from Section 18.
+  - Highlight clean 0/0/0, edited metadata 0/30/0, splice 0/0/84.3.
+
+Slide 12 - ELA Screenshots
+  - Left: original clean image.
+  - Right: clean ELA heatmap (edges only, no dense region).
+  - Next: spliced comparison image with red box.
+  - Explain why dense-region filtering avoids false positives.
+
+Slide 13 - Testing
+  - 21 tests passing.
+  - 6 file, 9 metadata, 6 ELA.
+  - Negative controls: renamed file, double extension, corrupt file, no EXIF.
+  - Command: python -m unittest discover -s tests -v.
+
+Slide 14 - Limitations and Future Scope
+  - ELA is not proof; smooth/blur edits can be missed.
+  - Copy-move misses flat regions.
+  - LSB checks fail on JPEG.
+  - EXIF is easy to forge.
+  - Future: PRNU/CFA, JPEG ghosts, deep learning, C2PA, batch mode,
+    signed PDF/A, video/deepfake, Autopsy plug-in.
+
+Slide 15 - Conclusion and Demo
+  - Modular, offline image-forensics toolkit.
+  - Combines integrity, metadata and compression analysis.
+  - Structured findings and reproducible artifacts.
+  - Modules 1-3 complete; 4-6 planned.
+  - Live demo commands.
+  - Thank you / questions.
+
+===============================================================================
+29. VIVA QUESTIONS AND SHORT ANSWERS
+===============================================================================
+Q1. What is image forensics?
+A. The process of determining the origin, authenticity and history of a digital
+image using file, metadata and pixel evidence.
+
+Q2. Why use SHA-256 instead of MD5?
+A. SHA-256 is collision-resistant and is the primary integrity digest. MD5 and
+SHA-1 are kept only for legacy compatibility.
+
+Q3. What are magic bytes?
+A. The first bytes of a file that identify its real format. They are more
+reliable than the file extension.
+
+Q4. What is EXIF?
+A. A TIFF-style metadata block written by cameras and phones. It can contain
+camera identity, lens, capture time, GPS and a thumbnail.
+
+Q5. Can EXIF be trusted?
+A. No. It can be edited or stripped easily. It is corroboration, not proof.
+
+Q6. What is ELA?
+A. Error Level Analysis. Re-save the image at a known JPEG quality and compare
+the pixels. Regions with a different compression history often show a different
+residual.
+
+Q7. Why is ELA not proof?
+A. Texture, sharp edges, denoising, resizing and earlier JPEG saves also create
+residuals. It detects compression inconsistency, not intent.
+
+Q8. How does your ELA detector reduce false positives?
+A. It uses 16x16 blocks, a robust median+MAD threshold, a 9x9 local-density
+filter, a minimum area, and a region-vs-ring contrast check. Thin edges do not
+form dense regions.
+
+Q9. What is copy-move forgery?
+A. Copying a region and pasting it elsewhere in the same image, often to hide or
+duplicate an object.
+
+Q10. How is copy-move detected?
+A. ORB/SIFT keypoints are matched with a ratio test and verified with RANSAC.
+Matched points reveal duplicated regions. Block matching is a fallback for flat
+areas.
+
+Q11. What is LSB steganography?
+A. Hiding data in the least-significant bit of pixel values. The visual change
+is at most 1 level per channel.
+
+Q12. What is a chi-square attack?
+A. A statistical test on even/odd value-pair frequencies. Sequential LSB
+replacement tends to equalise the pairs, producing a high p-value.
+
+Q13. Why do LSB checks fail on JPEG?
+A. JPEG is lossy and quantises DCT coefficients, which destroys most LSB
+payloads. LSB checks are strongest on PNG/BMP/TIFF.
+
+Q14. What is appended-data steganography?
+A. Data hidden after a format's end marker (PNG IEND, JPEG FF D9, GIF 3B).
+Viewers ignore it, but it can carry a ZIP, PDF or executable.
+
+Q15. What is chain of custody?
+A. A documented record of who handled the evidence, when, and what they did. The
+hash chain makes tampering with the audit log detectable.
+
+Q16. Why is the tool offline?
+A. To avoid leaking evidence to third-party services and to keep the analysis
+reproducible. GPS is shown as coordinates plus an OpenStreetMap link.
+
+Q17. What is the final verdict formula?
+A. Weighted score: file 0.15, metadata 0.20, ELA 0.20, copy-move 0.30, stego
+0.15. Bands: <20 authentic, 20-49 suspicious, >=50 likely tampered.
+
+Q18. What are the main limitations?
+A. ELA false positives/negatives, copy-move misses flat regions, LSB checks fail
+on JPEG, EXIF is forgeable, thresholds are empirical, and the tool is not
+court-validated.
+
+Q19. What is the future scope?
+A. PRNU/CFA analysis, JPEG ghosts, deep-learning tamper localisation, C2PA,
+batch/case database, signed PDF/A, video/deepfake detection and Autopsy/FTK
+integration.
+
+Q20. Why is the project modular?
+A. Each analyzer is an independent pure function returning the same result
+contract. This makes testing, tuning, reporting and future extension easier.
+
+===============================================================================
+30. CURRENT STATUS AND NEXT WORK
+===============================================================================
+Completed:
+  [x] Module 1 - file analysis and integrity
+  [x] Module 2 - EXIF/GPS/metadata
+  [x] Module 3 - Error Level Analysis
+  [x] README with setup, usage, test plan, theory and limitations
+  [x] 21 unit tests passing
+  [x] ELA artifacts generated for the PPT
+
+Next:
+  [ ] Module 4 - copy-move forgery detection
+  [ ] Module 5 - steganography checks
+  [ ] Module 6 - verdict + PDF report + Streamlit UI
+  [ ] Architecture and data-flow diagrams exported to docs/
+  [ ] Screenshots of clean, edited and stego cases
+  [ ] Final PDF report sample
+
+Commands to reproduce the current state:
+  cd image-forensics-tool
+  source .venv/bin/activate
+  python -m unittest discover -s tests -v
+  python -m forensics.ela samples/tampered/spliced_demo.jpg
+
+===============================================================================
+END OF SUMMARY
+===============================================================================
