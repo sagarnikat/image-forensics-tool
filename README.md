@@ -20,7 +20,8 @@ evidence report with a verdict and reasoning.
 > **Status:** Modules 1–3 and the verdict + PDF report are complete.
 > Completed: file analysis & integrity, EXIF/metadata analysis, Error Level Analysis,
 > verdict aggregation, PDF evidence report, one-command CLI.
-> Pending: copy-move detection, steganography checks, Streamlit UI.
+> Completed: Streamlit UI (`app.py`).
+> Pending: copy-move detection and steganography checks.
 
 ---
 
@@ -35,7 +36,7 @@ evidence report with a verdict and reasoning.
 | 5 | Steganography checks | `forensics/stego.py` | ⏳ Pending |
 | 6a | Verdict aggregation | `forensics/verdict.py`, `forensics/pipeline.py` | ✅ Complete |
 | 6b | PDF evidence report | `forensics/report.py` | ✅ Complete |
-| 6c | Streamlit UI | `app.py` | ⏳ Pending |
+| 6c | Streamlit UI | `app.py` | ✅ Complete |
 
 ### What works today
 
@@ -71,7 +72,7 @@ evidence report with a verdict and reasoning.
 | EXIF | ExifRead + Pillow |
 | Plots / heatmaps | Matplotlib |
 | PDF report | ReportLab |
-| UI | Streamlit (pending) |
+| UI | Streamlit (`app.py`) |
 | Hashing | `hashlib` (standard library) |
 | Tests | `unittest` (standard library) |
 
@@ -163,7 +164,7 @@ third-party service.
 
 ```text
 image-forensics-tool/
-├── app.py                      # Streamlit UI (pending)
+├── app.py                      # Streamlit UI
 ├── requirements.txt
 ├── README.md
 │
@@ -445,14 +446,14 @@ The PDF contains, in order:
 The evidence file is only read. Every report states the exact thresholds used,
 so another examiner can reproduce the run.
 
-### Full Streamlit app (available after the UI module)
+### Full Streamlit app
 
 ```bash
 streamlit run app.py
 ```
 
-Then open <http://localhost:8501>. The command will work once `app.py` and the
-remaining modules are added.
+Then open <http://localhost:8501>. Pick a built-in sample or upload an image,
+run the analysis, browse each module tab, and download the PDF report.
 
 ---
 
@@ -871,7 +872,7 @@ hash chain in the UI phase will make tampering with the audit log detectable.
 - [x] Module 3: ELA
 - [ ] Module 4: copy-move
 - [ ] Module 5: steganography
-- [ ] Module 6: verdict + PDF + Streamlit UI
+- [x] Module 6: verdict + PDF + Streamlit UI
 - [x] `requirements.txt`
 - [x] README with setup and test steps
 - [x] Unit tests for completed modules
