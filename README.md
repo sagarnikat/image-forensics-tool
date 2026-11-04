@@ -51,8 +51,9 @@ streamlit run app.py
 ```
 
 Open <http://localhost:8501> in your browser. In the sidebar, pick a built-in
-sample or upload your own image, then browse the module tabs. Use the **Report**
-tab to generate and download the PDF.
+sample or upload your own image, then browse the module tabs. A
+**Download PDF report** button appears under the verdict (and again in the
+**Report** tab) as soon as the analysis finishes.
 
 ### Or run the command-line report
 

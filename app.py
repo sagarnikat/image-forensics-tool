@@ -71,6 +71,60 @@ def sha256_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _report_key(path: Path, include_optional: bool, examiner: str) -> tuple[str, bool, str]:
+    return (str(path), bool(include_optional), examiner.strip())
+
+
+def current_report(path: Path, include_optional: bool, examiner: str) -> bytes | None:
+    """Return the PDF already built for this exact evidence + options, if any."""
+    if st.session_state.get("report_key") == _report_key(path, include_optional, examiner):
+        return st.session_state.get("report_bytes")
+    return None
+
+
+def build_and_store_report(path: Path, include_optional: bool, examiner: str) -> bytes:
+    """Build the PDF once and remember it for the download button."""
+    pdf_bytes = cached_report(str(path), include_optional, examiner)
+    st.session_state["report_bytes"] = pdf_bytes
+    st.session_state["report_key"] = _report_key(path, include_optional, examiner)
+    st.session_state["report_name"] = f"pixelproof_{safe_name(path.stem)}.pdf"
+    return pdf_bytes
+
+
+def ensure_report(path: Path, include_optional: bool, examiner: str) -> bytes | None:
+    """Auto-build the PDF so the download button is available immediately."""
+    existing = current_report(path, include_optional, examiner)
+    if existing is not None:
+        return existing
+    try:
+        with st.spinner("Preparing PDF report..."):
+            return build_and_store_report(path, include_optional, examiner)
+    except Exception as exc:  # noqa: BLE001 - report failure must not hide the analysis
+        st.warning(f"PDF report could not be generated: {type(exc).__name__}: {exc}")
+        return None
+
+
+def render_report_actions(path: Path, include_optional: bool, examiner: str, *, key: str) -> None:
+    """Download button + regenerate control, reused on the Overview and Report tabs."""
+    report_bytes = ensure_report(path, include_optional, examiner)
+    if report_bytes:
+        st.download_button(
+            "⬇️ Download PDF report",
+            data=report_bytes,
+            file_name=st.session_state.get("report_name", "report.pdf"),
+            mime="application/pdf",
+            type="primary",
+            key=f"download_{key}",
+        )
+        st.caption("Built from the same analysis shown above.")
+    elif st.button("Generate PDF report", key=f"generate_{key}"):
+        try:
+            build_and_store_report(path, include_optional, examiner)
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not build the report: {type(exc).__name__}: {exc}")
+
+
 # --------------------------------------------------------------------- input
 def sample_options() -> dict[str, Path]:
     options: dict[str, Path] = {}
@@ -174,6 +228,17 @@ col4.metric("Analysis time", f"{pipeline['duration_s']:.2f}s")
 if verdict["escalated"]:
     for note in verdict["escalations"]:
         st.warning(note)
+
+# ------------------------------------------------------- report download (top)
+download_col, note_col = st.columns([1, 3])
+with download_col:
+    render_report_actions(evidence, include_optional, examiner, key="top")
+with note_col:
+    st.write("")
+    st.caption(
+        "The PDF evidence report uses the same pipeline result as this screen, "
+        "so its numbers cannot disagree with the UI."
+    )
 
 # ---------------------------------------------------------------------- tabs
 tab_names = ["Overview"] + [
@@ -300,28 +365,18 @@ with tabs[-1]:
     st.subheader("PDF evidence report")
     st.write(
         "The PDF is built from the same pipeline result shown above, so the "
-        "numbers cannot disagree with the screen."
+        "numbers cannot disagree with the screen. It includes the verdict, "
+        "hashes, per-module findings, ELA images, metadata details and the "
+        "chain-of-custody declaration."
     )
-    if st.button("Generate PDF report", type="primary"):
-        with st.spinner("Building PDF..."):
-            try:
-                pdf_bytes = cached_report(str(evidence), include_optional, examiner)
-                st.session_state["report_bytes"] = pdf_bytes
-                st.session_state["report_path"] = str(evidence)
-                st.session_state["report_name"] = f"pixelproof_{safe_name(evidence.stem)}.pdf"
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Could not build the report: {type(exc).__name__}: {exc}")
-
-    if (
-        st.session_state.get("report_bytes")
-        and st.session_state.get("report_path") == str(evidence)
-    ):
-        st.download_button(
-            "Download report",
-            data=st.session_state["report_bytes"],
-            file_name=st.session_state.get("report_name", "report.pdf"),
-            mime="application/pdf",
-        )
+    render_report_actions(evidence, include_optional, examiner, key="report")
+    if st.button("Rebuild PDF report", key="rebuild_report"):
+        try:
+            with st.spinner("Building PDF..."):
+                build_and_store_report(evidence, include_optional, examiner)
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not build the report: {type(exc).__name__}: {exc}")
 
 st.divider()
 st.caption(
