@@ -19,9 +19,56 @@ evidence report with a verdict and reasoning.
 
 > **Status:** Modules 1–3 and the verdict + PDF report are complete.
 > Completed: file analysis & integrity, EXIF/metadata analysis, Error Level Analysis,
-> verdict aggregation, PDF evidence report, one-command CLI.
-> Completed: Streamlit UI (`app.py`).
+> verdict aggregation, PDF evidence report, one-command CLI, Streamlit UI (`app.py`).
 > Pending: copy-move detection and steganography checks.
+
+---
+
+## Quick start — how to run
+
+Run every command from the project root (`image-forensics-tool/`).
+
+### 1. Install (Linux / macOS)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 1. Install (Windows)
+
+```bat
+py -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. Start the web app
+
+```bash
+streamlit run app.py
+```
+
+Open <http://localhost:8501> in your browser. In the sidebar, pick a built-in
+sample or upload your own image, then browse the module tabs. Use the **Report**
+tab to generate and download the PDF.
+
+### Or run the command-line report
+
+```bash
+python report.py samples/tampered/spliced_demo.jpg
+```
+
+The PDF is written to `output/reports/`. For all options:
+
+```bash
+python report.py --help
+```
+
+> If `streamlit` is not found, the virtual environment is not active. Run
+> `source .venv/bin/activate` (Linux/macOS) or `.venv\Scripts\activate` (Windows)
+> first, then retry.
 
 ---
 
